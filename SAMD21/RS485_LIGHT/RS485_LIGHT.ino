@@ -13,20 +13,19 @@
 // String Input
 String inputString = "";         // a string to hold incoming data
 boolean stringComplete = false;  // whether the string is complete
-boolean serialAvailable = true;  // if serial port is ok to write on
+boolean serialAvailable = true;  // if serial port is ok to write 
+
+//General Serial Communication
+String comma = ",";
+String end_mark = "end";
 
 // Mux Shield Components and Control Pins
 int s0 = 2, s1 = 3, s2 = 4, s3 = 5, SIG_pin = A1;
-int num_vials = 16;
 int mux_readings[16]; // The size Assumes number of vials
 int active_vial = 0;
 int PDtimes_averaged = 1000;
 int output[] = {60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000,60000};
 int Input[] = {4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095};
-
-//General Serial Communication
-String comma = ",";
-String end_mark = "end";
 
 // Photodiode Serial Communication
 int expected_PDinputs = 2;
@@ -35,16 +34,16 @@ evolver_si in("od_135", "_!", expected_PDinputs); //2 CSV Inputs from RPI
 boolean new_PDinput = false;
 int saved_PDaveraged = 1000; // saved input from Serial Comm.
 
-
 // LED Settings
+int num_vials = 16;
 String led_address = "light";
 evolver_si led("light", "_!", num_vials+1); // 17 CSV-inputs from RPI
 boolean new_LEDinput = false;
-int saved_LEDinputs[] = {4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095};
-
-
+int saved_LEDinputs[] = {4095,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+int LEDvals[] = {4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095,4095};
 
 void setup() {
+  // put your setup code here, to run once:
   pinMode(12, OUTPUT);
   digitalWrite(12, LOW);
 
@@ -68,26 +67,25 @@ void setup() {
   // reserve 1000 bytes for the inputString:
   inputString.reserve(1000);
   while (!Serial1);
-
   for (int i = 0; i < num_vials; i++) {
-    Tlc.set(RIGHT_PWM, i, 4095 - Input[i]);
+    Tlc.set(RIGHT_PWM, i, 0);
   }
   while(Tlc.update());
-
 }
 
 void loop() {
+  // put your main code here, to run repeatedly:
   SerialUSB.print("Reading Vial:");
   SerialUSB.println(active_vial);
   read_MuxShield();
+  ///serialEvent();
   if (stringComplete) {
     SerialUSB.println(inputString);
     in.analyzeAndCheck(inputString);
     led.analyzeAndCheck(inputString);
-
     // Clear input string, avoid accumulation of previous messages
     inputString = "";
-    
+
     // Photodiode Logic
     if (in.addressFound) {
       if (in.input_array[0] == "i" || in.input_array[0] == "r") {
@@ -110,35 +108,38 @@ void loop() {
       in.addressFound = false;
       inputString = "";
     }
-    
+       
     // LED Logic
     if (led.addressFound) {
+      
       if (led.input_array[0] == "i" || led.input_array[0] == "r") {
         SerialUSB.println("Saving LED Setpoints");
         for (int n = 1; n < num_vials+1; n++) {
           saved_LEDinputs[n-1] = led.input_array[n].toInt();
-        led.input_array[0] = "a";
         }
-        
         SerialUSB.println("Echoing New LED Command");
-        new_LEDinput = true;
         echoLED();
-        
+        new_LEDinput = true;
         SerialUSB.println("Waiting for OK to execute...");
       }
-      
+
       if (led.input_array[0] == "a" && new_LEDinput) {
         update_LEDvalues();
         SerialUSB.println("Command Executed!");
-        new_LEDinput = false;       
-        
+        new_LEDinput = false;         
       }
 
-
+      update_light();
+      ///update_LEDvalues();
       led.addressFound = false;
       inputString = "";
+      
     }
-
+/*
+    if (new_LEDinput){
+      update_light(); 
+    }
+*/    
     // Clears strings if too long
     // Should be checked server-side to avoid malfunctioning
     if (inputString.length() > 2000){
@@ -146,20 +147,36 @@ void loop() {
       inputString = "";
     }
   }
-
   // clear the string:
   stringComplete = false;
+  ///delay(1000);
 }
 
 void serialEvent() {
-  while (SerialUSB.available()) {
-    char inChar = (char)SerialUSB.read();
+  while (Serial1.available()) {
+    char inChar = (char)Serial1.read();
     inputString += inChar;
     if (inChar == '!') {
       stringComplete = true;
       break;
     }
   }
+}
+
+void update_light() {
+  for (int i = 0; i < num_vials; i++) {
+    int set_value = LEDvals[i];
+    Tlc.set(RIGHT_PWM, i, set_value);
+    }
+  while(Tlc.update());
+}
+
+void update_LEDvalues() {
+  for (int i = 0; i < num_vials; i++) {
+      LEDvals[i] = 4095 - saved_LEDinputs[i];
+      ///Tlc.set(RIGHT_PWM, i, 4095 - saved_LEDinputs[i]);
+  }
+  ///while(Tlc.update());
 }
 
 void echoLED() {
@@ -180,14 +197,6 @@ void echoLED() {
   digitalWrite(12, LOW);
 }
 
-void update_LEDvalues() {
-  for (int i = 0; i < num_vials; i++) {
-    Tlc.set(RIGHT_PWM, i, 4095 - saved_LEDinputs[i]);
-  }
-  while(Tlc.update());
-}
-
-
 int dataResponse (){
   digitalWrite(12, HIGH);
   String outputString = photodiode_address + "b,"; // b is a broadcast tag
@@ -198,10 +207,10 @@ int dataResponse (){
   outputString += end_mark;
 
   delay(100); // important to make sure pin 12 flips appropriately
-  
-  SerialUSB.println(outputString);
-  Serial1.print(outputString); // issues w/ println on Serial 1 being read into Raspberry Pi
-
+  if (serialAvailable) {
+    SerialUSB.println(outputString);
+    Serial1.print(outputString); // issues w/ println on Serial 1 being read into Raspberry Pi
+  }
   delay(100); // important to make sure pin 12 flips appropriately
 
   digitalWrite(12, LOW);
@@ -213,6 +222,7 @@ void read_MuxShield() {
   for (int h=0; h<(PDtimes_averaged); h++){
     mux_total = mux_total + readMux(active_vial);
     serialEvent();
+    delay(100);
     if (stringComplete){
       SerialUSB.println("String Completed, stop averaging");
       SerialUSB.println(h);
