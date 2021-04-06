@@ -61,6 +61,17 @@ void setup() {
   digitalWrite(s3, LOW);
 
   analogReadResolution(16);
+
+  pinMode(7, OUTPUT);
+  pinMode(8, OUTPUT);
+  pinMode(9, OUTPUT);
+  pinMode(10, OUTPUT);
+
+  digitalWrite(7, LOW);
+  digitalWrite(8, LOW);
+  digitalWrite(9, LOW);
+  digitalWrite(10, LOW);
+  
   Tlc.init(RIGHT_PWM,4095);
   Serial1.begin(9600);
   SerialUSB.begin(9600);
@@ -68,7 +79,7 @@ void setup() {
   inputString.reserve(1000);
   while (!Serial1);
   for (int i = 0; i < num_vials; i++) {
-    Tlc.set(RIGHT_PWM, i, 0);
+    Tlc.set(RIGHT_PWM, i, 4095);
   }
   while(Tlc.update());
 }
@@ -78,7 +89,7 @@ void loop() {
   SerialUSB.print("Reading Vial:");
   SerialUSB.println(active_vial);
   read_MuxShield();
-  ///serialEvent();
+  serialEvent(1);
   if (stringComplete) {
     SerialUSB.println(inputString);
     in.analyzeAndCheck(inputString);
@@ -87,6 +98,7 @@ void loop() {
     inputString = "";
 
     // Photodiode Logic
+
     if (in.addressFound) {
       if (in.input_array[0] == "i" || in.input_array[0] == "r") {
         
@@ -108,7 +120,7 @@ void loop() {
       in.addressFound = false;
       inputString = "";
     }
-       
+
     // LED Logic
     if (led.addressFound) {
       
@@ -118,28 +130,25 @@ void loop() {
           saved_LEDinputs[n-1] = led.input_array[n].toInt();
         }
         SerialUSB.println("Echoing New LED Command");
+        update_LEDvalues();
         echoLED();
         new_LEDinput = true;
         SerialUSB.println("Waiting for OK to execute...");
       }
 
       if (led.input_array[0] == "a" && new_LEDinput) {
-        update_LEDvalues();
         SerialUSB.println("Command Executed!");
-        new_LEDinput = false;         
+        new_LEDinput = false;
+        update_light();         
       }
 
-      update_light();
+      
       ///update_LEDvalues();
       led.addressFound = false;
       inputString = "";
       
     }
-/*
-    if (new_LEDinput){
-      update_light(); 
-    }
-*/    
+    
     // Clears strings if too long
     // Should be checked server-side to avoid malfunctioning
     if (inputString.length() > 2000){
@@ -149,16 +158,17 @@ void loop() {
   }
   // clear the string:
   stringComplete = false;
-  ///delay(1000);
 }
 
-void serialEvent() {
-  while (Serial1.available()) {
-    char inChar = (char)Serial1.read();
-    inputString += inChar;
-    if (inChar == '!') {
-      stringComplete = true;
-      break;
+void serialEvent(int time_wait) {
+ for (int n=0; n<time_wait; n++){ 
+    while (Serial1.available()) {
+      char inChar = (char)Serial1.read();
+      inputString += inChar;
+      if (inChar == '!') {
+        stringComplete = true;
+        break;
+      }
     }
   }
 }
@@ -182,17 +192,17 @@ void update_LEDvalues() {
 void echoLED() {
   digitalWrite(12, HIGH);
   
-  String outputString = led_address + "e,";
+  String outputString = led_address + "b,";
   for (int n = 1; n < num_vials+1 ; n++) {
     outputString += led.input_array[n];
     outputString += comma;
   }
   outputString += end_mark;
   delay(100);
-  if (serialAvailable) {
-    SerialUSB.println(outputString);
-    Serial1.print(outputString);
-  }  
+
+  SerialUSB.println(outputString);
+  Serial1.print(outputString);
+ 
   delay(100);
   digitalWrite(12, LOW);
 }
@@ -207,10 +217,10 @@ int dataResponse (){
   outputString += end_mark;
 
   delay(100); // important to make sure pin 12 flips appropriately
-  if (serialAvailable) {
-    SerialUSB.println(outputString);
-    Serial1.print(outputString); // issues w/ println on Serial 1 being read into Raspberry Pi
-  }
+
+  SerialUSB.println(outputString);
+  Serial1.print(outputString); // issues w/ println on Serial 1 being read into Raspberry Pi
+  
   delay(100); // important to make sure pin 12 flips appropriately
 
   digitalWrite(12, LOW);
@@ -221,8 +231,7 @@ void read_MuxShield() {
   
   for (int h=0; h<(PDtimes_averaged); h++){
     mux_total = mux_total + readMux(active_vial);
-    serialEvent();
-    delay(100);
+    serialEvent(1);
     if (stringComplete){
       SerialUSB.println("String Completed, stop averaging");
       SerialUSB.println(h);
@@ -266,10 +275,10 @@ int readMux(int channel){
   for(int i = 0; i < 4; i ++){
     digitalWrite(controlPin[i], muxChannel[channel][i]);
   }
-
+  
   //read the value at the SIG pin
   int val = analogRead(SIG_pin);
-
+  
   //return the value
   return val;
 }
